@@ -15,7 +15,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements MultiThreadDownloader.OnDownloadListener {
 
     private EditText etUrl;
     private EditText etThreadCount;
@@ -46,7 +46,6 @@ public class MainActivity extends AppCompatActivity {
         tvRemaining = findViewById(R.id.tv_remaining);
         tvStatus = findViewById(R.id.tv_status);
 
-        // 请求存储权限（Android 10以下需要，但我们使用公共目录实际也需要权限，这里保留请求逻辑）
         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     != PackageManager.PERMISSION_GRANTED) {
@@ -78,43 +77,8 @@ public class MainActivity extends AppCompatActivity {
             threadCount = 3;
         }
 
-        // 切换按钮状态
         setButtonState(true);
-
-        downloader = new MultiThreadDownloader(url, threadCount, new MultiThreadDownloader.OnDownloadListener() {
-            @Override
-            public void onProgress(int percent, String fileSize, String downloaded, String speed, String remainingTime) {
-                runOnUiThread(() -> {
-                    pbDownload.setProgress(percent);
-                    tvPercent.setText(percent + "%");
-                    tvFileSize.setText("文件大小：" + fileSize);
-                    tvDownloaded.setText("已下载：" + downloaded);
-                    tvSpeed.setText("速度：" + speed);
-                    tvRemaining.setText("剩余时间：" + remainingTime);
-                });
-            }
-
-            @Override
-            public void onStatusChanged(String status) {
-                runOnUiThread(() -> tvStatus.setText("状态：" + status));
-            }
-
-            @Override
-            public void onDownloadComplete() {
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "下载完成", Toast.LENGTH_SHORT).show();
-                    setButtonState(false);
-                });
-            }
-
-            @Override
-            public void onError(String error) {
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
-                    setButtonState(false);
-                });
-            }
-        });
+        downloader = new MultiThreadDownloader(url, threadCount, this);
         downloader.start();
     }
 
@@ -125,21 +89,57 @@ public class MainActivity extends AppCompatActivity {
         btnCancel.setEnabled(downloading);
     }
 
-    // 外部动态调整按钮（可在暂停/继续时调用）
     public void updateButtonsOnPause() {
-        btnPause.setEnabled(false);
-        btnResume.setEnabled(true);
-        btnCancel.setEnabled(true);
+        runOnUiThread(()->{
+            btnPause.setEnabled(false);
+            btnResume.setEnabled(true);
+            btnCancel.setEnabled(true);
+        });
     }
 
     public void updateButtonsOnResume() {
-        btnPause.setEnabled(true);
-        btnResume.setEnabled(false);
-        btnCancel.setEnabled(true);
+        runOnUiThread(()->{
+            btnPause.setEnabled(true);
+            btnResume.setEnabled(false);
+            btnCancel.setEnabled(true);
+        });
     }
 
     public void updateButtonsOnCancelOrComplete() {
-        setButtonState(false);
+        runOnUiThread(()-> setButtonState(false));
+    }
+
+    @Override
+    public void onProgress(int percent, String fileSize, String downloaded, String speed, String remainingTime) {
+        runOnUiThread(() -> {
+            pbDownload.setProgress(percent);
+            tvPercent.setText(percent + "%");
+            tvFileSize.setText("文件大小：" + fileSize);
+            tvDownloaded.setText("已下载：" + downloaded);
+            tvSpeed.setText("速度：" + speed);
+            tvRemaining.setText("剩余时间：" + remainingTime);
+        });
+    }
+
+    @Override
+    public void onStatusChanged(String status) {
+        runOnUiThread(() -> tvStatus.setText("状态：" + status));
+    }
+
+    @Override
+    public void onDownloadComplete() {
+        runOnUiThread(() -> {
+            Toast.makeText(MainActivity.this, "下载完成", Toast.LENGTH_SHORT).show();
+            updateButtonsOnCancelOrComplete();
+        });
+    }
+
+    @Override
+    public void onError(String error) {
+        runOnUiThread(() -> {
+            Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
+            updateButtonsOnCancelOrComplete();
+        });
     }
 
     @Override
@@ -147,9 +147,8 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQUEST_STORAGE_PERMISSION) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                // 权限已授予
             } else {
-                Toast.makeText(this, "存储权限被拒绝，可能无法保存文件到公共目录", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "存储权限被拒绝，可能无法保存文件", Toast.LENGTH_SHORT).show();
             }
         }
     }
